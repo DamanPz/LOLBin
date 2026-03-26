@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Events>
+  <!-- Event 1: A legitimate Process Creation Event (Event ID 1) -->
+  <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+    <System>
+      <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+      <EventID>1</EventID>
+      <Version>5</Version>
+      <Level>4</Level>
+      <Task>1</Task>
+      <Opcode>0</Opcode>
+      <Keywords>0x8000000000000000</Keywords>
+      <TimeCreated SystemTime="2023-11-01T08:32:01.1234567Z"/>
+      <EventRecordID>1001</EventRecordID>
+      <Correlation/>
+      <Execution ProcessID="4" ThreadID="8"/>
+      <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+      <Computer>DESKTOP-SEC-01</Computer>
+      <Security UserID="S-1-5-18"/>
+    </System>
+    <EventData>
+      <Data Name="RuleName">-</Data>
+      <Data Name="UtcTime">2023-11-01 08:32:01.123</Data>
+      <Data Name="ProcessGuid">{A1B2C3D4-E5F6-7890-1234-567890ABCDEF}</Data>
+      <Data Name="ProcessId">1234</Data>
+      <Data Name="Image">C:\Windows\System32\cmd.exe</Data>
+      <Data Name="FileVersion">10.0.19041.746 (WinBuild.160101.0800)</Data>
+      <Data Name="Description">Windows Command Processor</Data>
+      <Data Name="Product">Microsoft® Windows® Operating System</Data>
+      <Data Name="Company">Microsoft Corporation</Data>
+      <Data Name="OriginalFileName">Cmd.Exe</Data>
+      <Data Name="CommandLine">"cmd.exe" /c whoami</Data>
+      <Data Name="CurrentDirectory">C:\Users\Admin\</Data>
+      <Data Name="User">DESKTOP-SEC-01\Admin</Data>
+      <Data Name="LogonGuid">{A1B2C3D4-1111-2222-3333-567890ABCDEF}</Data>
+      <Data Name="LogonId">0x3e7</Data>
+      <Data Name="TerminalSessionId">1</Data>
+      <Data Name="IntegrityLevel">High</Data>
+      <Data Name="Hashes">SHA1=BBA093836DFCD74DDEB1020AE63DF987AC6122EB</Data>
+      <Data Name="ParentProcessGuid">{A1B2C3D4-4444-5555-6666-567890ABCDEF}</Data>
+      <Data Name="ParentProcessId">888</Data>
+      <Data Name="ParentImage">C:\Windows\explorer.exe</Data>
+      <Data Name="ParentCommandLine">C:\Windows\Explorer.EXE</Data>
+    </EventData>
+  </Event>
+
+  <!-- Event 2: A different Sysmon Event (Network Connection - Event ID 3) to test filtering -->
+  <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+    <System>
+      <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+      <EventID>3</EventID>
+      <Version>5</Version>
+      <Level>4</Level>
+      <Task>3</Task>
+      <Opcode>0</Opcode>
+      <Keywords>0x8000000000000000</Keywords>
+      <TimeCreated SystemTime="2023-11-01T08:35:10.5555555Z"/>
+      <EventRecordID>1002</EventRecordID>
+      <Correlation/>
+      <Execution ProcessID="4" ThreadID="8"/>
+      <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+      <Computer>DESKTOP-SEC-01</Computer>
+      <Security UserID="S-1-5-18"/>
+    </System>
+    <EventData>
+      <Data Name="RuleName">-</Data>
+      <Data Name="UtcTime">2023-11-01 08:35:10.555</Data>
+      <Data Name="ProcessGuid">{A1B2C3D4-E5F6-7890-1234-567890ABCDEF}</Data>
+      <Data Name="ProcessId">1234</Data>
+      <Data Name="Image">C:\Windows\System32\cmd.exe</Data>
+      <Data Name="User">DESKTOP-SEC-01\Admin</Data>
+      <Data Name="Protocol">tcp</Data>
+      <Data Name="Initiated">true</Data>
+      <Data Name="SourceIsIpv6">false</Data>
+      <Data Name="SourceIp">192.168.1.100</Data>
+      <Data Name="SourceHostname">DESKTOP-SEC-01</Data>
+      <Data Name="SourcePort">52123</Data>
+      <Data Name="SourcePortName">-</Data>
+      <Data Name="DestinationIsIpv6">false</Data>
+      <Data Name="DestinationIp">8.8.8.8</Data>
+      <Data Name="DestinationHostname">dns.google</Data>
+      <Data Name="DestinationPort">53</Data>
+      <Data Name="DestinationPortName">domain</Data>
+    </EventData>
+  </Event>
+
+  <!-- Event 3: Another Process Creation (Event ID 1) -> Powershell LOLBin Example -->
+  <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+    <System>
+      <Provider Name="Microsoft-Windows-Sysmon" Guid="{5770385F-C22A-43E0-BF4C-06F5698FFBD9}"/>
+      <EventID>1</EventID>
+      <Version>5</Version>
+      <Level>4</Level>
+      <Task>1</Task>
+      <Opcode>0</Opcode>
+      <Keywords>0x8000000000000000</Keywords>
+      <TimeCreated SystemTime="2023-11-01T08:40:22.9999999Z"/>
+      <EventRecordID>1003</EventRecordID>
+      <Correlation/>
+      <Execution ProcessID="4" ThreadID="8"/>
+      <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+      <Computer>DESKTOP-SEC-01</Computer>
+      <Security UserID="S-1-5-18"/>
+    </System>
+    <EventData>
+      <Data Name="RuleName">Suspicious Execution</Data>
+      <Data Name="UtcTime">2023-11-01 08:40:22.999</Data>
+      <Data Name="ProcessGuid">{B2C3D4E5-F678-9012-3456-7890ABCDEF12}</Data>
+      <Data Name="ProcessId">4321</Data>
+      <Data Name="Image">C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe</Data>
+      <Data Name="FileVersion">10.0.19041.546 (WinBuild.160101.0800)</Data>
+      <Data Name="Description">Windows PowerShell</Data>
+      <Data Name="Product">Microsoft® Windows® Operating System</Data>
+      <Data Name="Company">Microsoft Corporation</Data>
+      <Data Name="OriginalFileName">PowerShell.EXE</Data>
+      <Data Name="CommandLine">powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand JABzAD0ATgBlAHcALQBPAGIAagBlAG...</Data>
+      <Data Name="CurrentDirectory">C:\Users\Admin\AppData\Local\Temp\</Data>
+      <Data Name="User">DESKTOP-SEC-01\Admin</Data>
+      <Data Name="LogonGuid">{A1B2C3D4-1111-2222-3333-567890ABCDEF}</Data>
+      <Data Name="LogonId">0x3e7</Data>
+      <Data Name="TerminalSessionId">1</Data>
+      <Data Name="IntegrityLevel">Medium</Data>
+      <Data Name="Hashes">SHA1=36C5D12033B2EAF251B2EABCBD1E4567</Data>
+      <Data Name="ParentProcessGuid">{A1B2C3D4-E5F6-7890-1234-567890ABCDEF}</Data>
+      <Data Name="ParentProcessId">1234</Data>
+      <Data Name="ParentImage">C:\Windows\System32\cmd.exe</Data>
+      <Data Name="ParentCommandLine">"cmd.exe" /c script.bat</Data>
+    </EventData>
+  </Event>
+</Events>

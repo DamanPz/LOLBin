@@ -1,0 +1,18 @@
+[
+    {
+        "EventID": 1,
+        "Timestamp": "2023-11-01T08:32:01.1234567Z",
+        "ProcessName": "C:\\Windows\\System32\\cmd.exe",
+        "CommandLine": "\"cmd.exe\" /c whoami",
+        "ParentProcess": "C:\\Windows\\explorer.exe",
+        "User": "DESKTOP-SEC-01\\Admin"
+    },
+    {
+        "EventID": 1,
+        "Timestamp": "2023-11-01T08:40:22.9999999Z",
+        "ProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "CommandLine": "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand JABzAD0ATgBlAHcALQBPAGIAagBlAG...",
+        "ParentProcess": "C:\\Windows\\System32\\cmd.exe",
+        "User": "DESKTOP-SEC-01\\Admin"
+    }
+]
