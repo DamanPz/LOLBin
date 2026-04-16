@@ -1,159 +1,205 @@
+"""
+LOLBin Detector — ML-based (no hardcoded rules)
+================================================
+Loads a trained RandomForest model from lolbin_model.pkl and uses it to
+score process telemetry. No if/else detection rules — all patterns are
+learned from labeled data via train_model.py.
+
+If lolbin_model.pkl is not found, all events are returned as LOW risk
+with a warning. Run train_model.py first.
+"""
+
+import os
 import re
+import warnings
 import numpy as np
-from typing import List, Dict, Any
-from sklearn.ensemble import IsolationForest
+import pandas as pd
 
-def extract_features(log: Dict[str, Any]) -> List[float]:
-    """
-    Extracts numerical features from a log dictionary.
-    """
-    command_line = str(log.get("command_line", "")).lower()
-    
-    # 1. Length of command line
-    cmd_length = len(command_line)
-    
-    # 2. Presence of encoded command (1/0)
-    has_encoded = 1.0 if "-encodedcommand" in command_line or "-enc " in command_line or "-e " in command_line else 0.0
-    
-    # 3. Presence of suspicious flags (1/0)
-    suspicious_flags = ["bypass", "hidden", "urlcache", "decode", "-f", "split"]
-    has_suspicious = 1.0 if any(flag in command_line for flag in suspicious_flags) else 0.0
-    
-    # 4. Risk score (existing)
-    risk_score = float(log.get("risk_score", 0))
-    
-    return [cmd_length, has_encoded, has_suspicious, risk_score]
+warnings.filterwarnings("ignore")
 
-def train_anomaly_detector(normal_logs: List[Dict[str, Any]]) -> IsolationForest:
-    """
-    Trains an Isolation Forest model on sample normal data.
-    """
-    # If no normal data provided, create a dummy baseline to avoid fitting errors
-    if not normal_logs:
-        normal_logs = [{
-            "process_name": "cmd.exe",
-            "command_line": "cmd.exe /c exit",
-            "parent_process": "explorer.exe",
-            "risk_score": 0
-        }]
-        
-    features = [extract_features(log) for log in normal_logs]
-    
-    # Train Isolation Forest
-    # contamination is the expected proportion of outliers. Set to a low value for normal training data.
-    model = IsolationForest(n_estimators=100, contamination=0.05, random_state=42)
-    model.fit(features)
-    
-    return model
+# ─────────────────────────────────────────────────────────────────────────────
+# MITRE ATT&CK lookup (enrichment metadata, NOT detection rules)
+# ─────────────────────────────────────────────────────────────────────────────
+MITRE_MAP = {
+    "powershell":    ("T1059.001", "Command and Scripting Interpreter: PowerShell"),
+    "pwsh":          ("T1059.001", "Command and Scripting Interpreter: PowerShell"),
+    "cmd":           ("T1059.003", "Command and Scripting Interpreter: Windows Command Shell"),
+    "certutil":      ("T1105",     "Ingress Tool Transfer"),
+    "bitsadmin":     ("T1105",     "Ingress Tool Transfer"),
+    "mshta":         ("T1218.005", "Signed Binary Proxy Execution: Mshta"),
+    "regsvr32":      ("T1218.010", "Signed Binary Proxy Execution: Regsvr32"),
+    "rundll32":      ("T1218.011", "Signed Binary Proxy Execution: Rundll32"),
+    "wmic":          ("T1047",     "Windows Management Instrumentation"),
+    "msiexec":       ("T1218.007", "Signed Binary Proxy Execution: Msiexec"),
+    "cscript":       ("T1059.005", "Command and Scripting Interpreter: Visual Basic"),
+    "wscript":       ("T1059.005", "Command and Scripting Interpreter: Visual Basic"),
+    "regsvcs":       ("T1218.009", "Signed Binary Proxy Execution: Regsvcs/Regasm"),
+    "regasm":        ("T1218.009", "Signed Binary Proxy Execution: Regsvcs/Regasm"),
+    "installutil":   ("T1218.004", "Signed Binary Proxy Execution: InstallUtil"),
+    "schtasks":      ("T1053.005", "Scheduled Task/Job: Scheduled Task"),
+    "net":           ("T1136",     "Create Account"),
+    "reg":           ("T1112",     "Modify Registry"),
+}
 
-def detect_suspicious_activity(logs: List[Dict[str, Any]], ml_model: IsolationForest = None) -> List[Dict[str, Any]]:
-    """
-    Analyzes a list of Sysmon process creation logs to detect suspicious activity,
-    assigning a numerical risk score and risk level. Optionally applies an ML model 
-    for anomaly detection.
-    
-    Args:
-        logs (list): Process logs.
-        ml_model: Trained IsolationForest instance (optional).
-            
-    Returns:
-        list: Updated logs.
-    """
-    updated_logs = []
+MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lolbin_model.pkl")
 
+_model = None
+_model_loaded = False
+
+
+def _load_model():
+    global _model, _model_loaded
+    if _model_loaded:
+        return _model
+    _model_loaded = True
+    if os.path.exists(MODEL_PATH):
+        try:
+            import joblib
+            _model = joblib.load(MODEL_PATH)
+            print(f"[detector] Model loaded from {MODEL_PATH}")
+        except Exception as e:
+            print(f"[detector] WARNING: Failed to load model: {e}")
+            _model = None
+    else:
+        print(f"[detector] WARNING: No model found at {MODEL_PATH}. Run train_model.py first.")
+        _model = None
+    return _model
+
+
+def _get_mitre(process_name: str):
+    proc = str(process_name).lower()
+    # Strip path, keep filename
+    proc = os.path.basename(proc).replace(".exe", "")
+    for key, val in MITRE_MAP.items():
+        if key in proc:
+            return val
+    return ("T1059", "Command and Scripting Interpreter")
+
+
+def _add_numeric_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Must match feature engineering in train_model.py exactly."""
+    cmd = df["command_line"].fillna("").str.lower()
+    df = df.copy()
+    df["cmd_length"]      = cmd.str.len()
+    df["num_args"]        = cmd.str.count(r"\s")
+    df["has_http"]        = cmd.str.contains(r"https?://", regex=True).astype(int)
+    df["has_ip"]          = cmd.str.contains(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", regex=True).astype(int)
+    df["num_special"]     = cmd.apply(lambda x: sum(1 for c in x if c in "^|&;`$%@"))
+    df["has_long_token"]  = cmd.apply(lambda x: int(any(len(t) > 40 for t in x.split())))
+    df["word_count"]      = cmd.str.split().apply(lambda x: len(x) if isinstance(x, list) else 0)
+    return df
+
+
+def _prepare_row(log: dict) -> pd.DataFrame:
+    row = {
+        "process_name":  str(log.get("process_name") or "").lower(),
+        "command_line":  str(log.get("command_line")  or "").lower(),
+        "parent_process": str(log.get("parent_process") or "").lower(),
+    }
+    df = pd.DataFrame([row])
+    df = _add_numeric_features(df)
+    return df
+
+
+def _score_log(log: dict, model) -> dict:
+    """Run model inference on a single log dict. Returns enriched copy."""
+    result = dict(log)
+
+    df = _prepare_row(log)
+
+    try:
+        prob        = float(model.predict_proba(df)[0][1])
+        is_malicious = prob >= 0.5
+    except Exception:
+        prob, is_malicious = 0.0, False
+
+    risk_score = int(round(prob * 100))
+
+    if risk_score <= 30:
+        risk_level = "LOW"
+    elif risk_score <= 70:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "HIGH"
+
+    technique_id, technique_name = _get_mitre(log.get("process_name", ""))
+
+    result["risk_score"]    = risk_score
+    result["risk_level"]    = risk_level
+    result["is_anomalous"]  = is_malicious
+    result["anomaly_score"] = round(prob, 4)
+    result["mitre_id"]      = technique_id
+    result["mitre_name"]    = technique_name
+    result["reason"]        = (
+        f"ML confidence: {prob:.0%} malicious | {technique_id}: {technique_name}"
+        if is_malicious
+        else f"ML confidence: {prob:.0%} malicious | {technique_id}: {technique_name}"
+    )
+
+    return result
+
+
+def _score_log_no_model(log: dict) -> dict:
+    result = dict(log)
+    technique_id, technique_name = _get_mitre(log.get("process_name", ""))
+    result["risk_score"]    = 0
+    result["risk_level"]    = "LOW"
+    result["is_anomalous"]  = False
+    result["anomaly_score"] = 0.0
+    result["mitre_id"]      = technique_id
+    result["mitre_name"]    = technique_name
+    result["reason"]        = "No model loaded — run train_model.py to enable ML detection."
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PUBLIC API  (keeps compatibility with app.py and live_monitor.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def detect_suspicious_activity(logs, ml_model=None):  # noqa: ARG001
+    """
+    Analyze a list of process log dicts and return them enriched with:
+      risk_score, risk_level, is_anomalous, anomaly_score, mitre_id, reason
+
+    ml_model param is accepted for backward compatibility but ignored —
+    the module always uses the persisted lolbin_model.pkl.
+    """
+    model = _load_model()
+    results = []
     for log in logs:
-        # Safely extract fields and cast to lower case for comparison
-        process_name = str(log.get("process_name", "")).lower()
-        command_line = str(log.get("command_line", "")).lower()
-        parent_process = str(log.get("parent_process", "")).lower()
-        
-        risk_score = 0
-        reasons = []
-
-        # 1. Detect suspicious patterns based on command-line arguments
-        
-        # PowerShell checks
-        if "powershell" in process_name or "pwsh" in process_name:
-            if "-encodedcommand" in command_line or "-enc " in command_line or "-e " in command_line:
-                risk_score += 40
-                reasons.append("PowerShell execution with EncodedCommand flag (+40).")
-            
-            if "-executionpolicy bypass" in command_line or "-ep bypass" in command_line or "exec bypass" in command_line:
-                risk_score += 25
-                reasons.append("PowerShell execution policy bypass (+25).")
-                
-            if "-windowstyle hidden" in command_line or "-w hidden" in command_line or "-window hidden" in command_line:
-                risk_score += 15
-                reasons.append("PowerShell executed with a hidden window (+15).")
-                
-        # Certutil checks
-        if "certutil" in process_name:
-            if "-urlcache" in command_line and "split" in command_line and "-f" in command_line:
-                risk_score += 40
-                reasons.append("Certutil payload download command pattern (+40).")
-            elif "-urlcache" in command_line:
-                risk_score += 40
-                reasons.append("Certutil payload download via -urlcache (+40).")
-
-        # 2. Detect suspicious parent-child relationships
-        
-        if "powershell" in process_name and "cmd" in parent_process:
-            risk_score += 20
-            reasons.append("Suspicious ancestry: cmd.exe spawning powershell.exe (+20).")
-            
-        if "powershell" in process_name and "winword" in parent_process:
-            risk_score += 30
-            reasons.append("Suspicious ancestry: Microsoft Word (winword.exe) spawning powershell.exe (+30).")
-
-        # Calculate preliminary risk score to pass to the ML module if available
-        # But wait, the ML extract_features expects the dictionary to have `risk_score`.
-        # So we temporarily set it.
-        log["risk_score"] = risk_score
-
-        # --- ML Anomaly Detection ---
-        if ml_model is not None:
-            features = extract_features(log)
-            # score_samples returns opposite of anomaly score in some contexts, but let's use decision_function or predict
-            # predict returns 1 for inliers, -1 for outliers
-            prediction = ml_model.predict([features])[0]
-            
-            # score_samples gives negative values where lower is more anomalous. 
-            # We can map it to a positive anomaly score for readability.
-            raw_score = ml_model.score_samples([features])[0]
-            # normalize to a positive score just for output readability (optional format)
-            anomaly_score = round(float(-raw_score), 4)
-
-            is_anomalous = bool(prediction == -1)
-            log["anomaly_score"] = anomaly_score
-            log["is_anomalous"] = is_anomalous
-            
-            if is_anomalous and risk_score > 30:
-                risk_score += 15
-                reasons.append("Anomaly detected by ML module (+15).")
+        if model is not None:
+            results.append(_score_log(log, model))
         else:
-            # If no ML model is provided, set defaults or leave missing (user spec wants these fields added)
-            # Usually we'd assume it's added if the module is used
-            pass
+            results.append(_score_log_no_model(log))
+    return results
 
-        # Limit maximum score to 100
-        if risk_score > 100:
-            risk_score = 100
 
-        # Determine risk level based on the final score
-        if risk_score <= 30:
-            risk_level = "LOW"
-        elif 31 <= risk_score <= 70:
-            risk_level = "MEDIUM"
-        else:
-            risk_level = "HIGH"
+def run_detection_pipeline(log_event: dict) -> dict:
+    """Single-event entry point used by live_monitor.py."""
+    model = _load_model()
+    if model is not None:
+        return _score_log(log_event, model)
+    return _score_log_no_model(log_event)
 
-        if not reasons:
-            reasons.append("No suspicious activity detected.")
-            
-        log["risk_score"] = risk_score
-        log["risk_level"] = risk_level
-        log["reason"] = " | ".join(reasons)
-        
-        updated_logs.append(log)
 
-    return updated_logs
+def train_anomaly_detector(normal_logs=None):  # noqa: ARG001
+    """
+    Kept for backward compatibility with app.py.
+    The model is now trained offline via train_model.py.
+    Returns None — detect_suspicious_activity loads the model internally.
+    """
+    return None
+
+
+def extract_features(log):
+    """
+    Kept for backward compatibility.
+    Returns a simple feature vector (not used by the new ML pipeline).
+    """
+    cmd = str(log.get("command_line", "")).lower()
+    return [
+        len(cmd),
+        int("-encodedcommand" in cmd or "-enc " in cmd),
+        int(any(f in cmd for f in ["bypass", "hidden", "urlcache"])),
+        float(log.get("risk_score", 0)),
+    ]
